@@ -1,0 +1,717 @@
+[
+    {
+        "id": "flow_act350_completo",
+        "type": "tab",
+        "label": "DEMO-ACT350-EIP",
+        "disabled": false,
+        "info": "Flujo completo de lectura y escritura para Mettler Toledo ACT350 via EtherNet/IP.\n\nLIBRERÍAS REQUERIDAS:\n- @serafintech/node-red-contrib-eip-io (v1.2.1+)\n- node-red-contrib-buffer-parser (v3.2.2+)\n\nINSTRUCCIONES:\n1. Cambiar la IP del nodo 'ACT350-Conexion' a la IP de su dispositivo\n2. Cargar el archivo EDS en la configuración de la conexión\n3. Deploy y verificar comunicación con el debug 'Peso y Estado'",
+        "env": []
+    },
+    {
+        "id": "comment_lectura",
+        "type": "comment",
+        "z": "flow_act350_completo",
+        "name": "══ LECTURA CONTINUA (T→O: Assembly 101) ══",
+        "info": "Esta sección lee los 16 bytes del Assembly 101 del ACT350,\nlos decodifica en campos individuales y extrae todos los bits de estado.",
+        "x": 190,
+        "y": 20,
+        "wires": []
+    },
+    {
+        "id": "read_input",
+        "type": "eip-io in",
+        "z": "flow_act350_completo",
+        "name": "readFromACT350",
+        "conn": "conn_v2",
+        "byteOffset": 0,
+        "bitOffset": 0,
+        "bitSize": "128",
+        "updateRate": "1",
+        "bigEndian": false,
+        "dataType": "Buffer",
+        "decimals": "0",
+        "x": 110,
+        "y": 80,
+        "wires": [
+            [
+                "parser_input"
+            ]
+        ]
+    },
+    {
+        "id": "parser_input",
+        "type": "buffer-parser",
+        "z": "flow_act350_completo",
+        "name": "Parser: Buffer → Campos SAI",
+        "data": "payload",
+        "dataType": "msg",
+        "specification": "spec",
+        "specificationType": "ui",
+        "items": [
+            {
+                "type": "floatle",
+                "name": "measureValue",
+                "offset": 0,
+                "length": 1,
+                "offsetbit": 0,
+                "scale": "1",
+                "mask": ""
+            },
+            {
+                "type": "uint16le",
+                "name": "deviceStatus",
+                "offset": 4,
+                "length": 1,
+                "offsetbit": 0,
+                "scale": "1",
+                "mask": ""
+            },
+            {
+                "type": "int16le",
+                "name": "mbResponse",
+                "offset": 6,
+                "length": 1,
+                "offsetbit": 0,
+                "scale": "1",
+                "mask": ""
+            },
+            {
+                "type": "uint16le",
+                "name": "statusGroup1",
+                "offset": 8,
+                "length": 1,
+                "offsetbit": 0,
+                "scale": "1",
+                "mask": ""
+            },
+            {
+                "type": "uint16le",
+                "name": "statusGroup2",
+                "offset": 10,
+                "length": 1,
+                "offsetbit": 0,
+                "scale": "1",
+                "mask": ""
+            },
+            {
+                "type": "uint16le",
+                "name": "statusGroup3",
+                "offset": 12,
+                "length": 1,
+                "offsetbit": 0,
+                "scale": "1",
+                "mask": ""
+            },
+            {
+                "type": "int16le",
+                "name": "sbResponse",
+                "offset": 14,
+                "length": 1,
+                "offsetbit": 0,
+                "scale": "1",
+                "mask": ""
+            }
+        ],
+        "swap1": "",
+        "swap2": "",
+        "swap3": "",
+        "swap1Type": "swap",
+        "swap2Type": "swap",
+        "swap3Type": "swap",
+        "msgProperty": "raw",
+        "msgPropertyType": "str",
+        "resultType": "keyvalue",
+        "resultTypeType": "return",
+        "multipleResult": false,
+        "fanOutMultipleResult": false,
+        "setTopic": true,
+        "outputs": 1,
+        "x": 410,
+        "y": 80,
+        "wires": [
+            [
+                "fn_decode_status"
+            ]
+        ]
+    },
+    {
+        "id": "fn_decode_status",
+        "type": "function",
+        "z": "flow_act350_completo",
+        "name": "decodeResponse",
+        "func": "// ═══════════════════════════════════════════════════════\n// DECODIFICACIÓN COMPLETA DE DATOS SAI - ACT350\n// Protocolo: SAI sobre EtherNet/IP\n// Formato: 2 Bloques (Assembly 101, 16 bytes, Little Endian)\n// ═══════════════════════════════════════════════════════\n\nconst raw = msg.raw;\n\n// ── 1. BLOQUE DE MEDICIÓN (Bytes 0-7) ──\nconst weight = parseFloat(raw.measureValue.toFixed(4));\nconst ds = raw.deviceStatus;  // UINT16 con 16 bits de estado\nconst resp = raw.mbResponse;  // INT16 con respuesta al comando\n\n// Decodificar cada bit del Device Status\nconst sequenceBits = ds & 0x03;           // Bits 0-1: toggle de secuencia\nconst heartbeat    = (ds >> 2) & 1;       // Bit 2: pulso de vida (~1s)\nconst dataOk       = (ds >> 3) & 1;       // Bit 3: datos válidos\nconst alarmCond    = (ds >> 4) & 1;       // Bit 4: alarma activa\nconst centerOfZero = (ds >> 5) & 1;       // Bit 5: en centro de cero\nconst motion       = (ds >> 6) & 1;       // Bit 6: inestabilidad\nconst netMode      = (ds >> 7) & 1;       // Bit 7: modo peso neto\nconst altUnit      = (ds >> 8) & 1;       // Bit 8: unidad alternativa\n\n// Decodificar MB Response\nconst respValue   = resp & 0x07FF;        // Bits 0-10: código de respuesta\nconst respChannel = (resp >> 11) & 0x0F;  // Bits 11-14: canal\nconst respError   = (resp >> 15) & 1;     // Bit 15: flag de error\n\n// ── 2. BLOQUE DE STATUS (Bytes 8-15) ──\nconst sg1 = raw.statusGroup1;  // RedAlert Alarms\nconst sg2 = raw.statusGroup2;  // Scale Status\nconst sg3 = raw.statusGroup3;  // I/O Status\n\n// RedAlert Alarms (Status Group 1)\nconst redAlert = {\n    calibrationError:    (sg1 >> 0) & 1,\n    outOfADRange:        (sg1 >> 1) & 1,\n    checksumFailure:     (sg1 >> 2) & 1,\n    weightBlocked:       (sg1 >> 3) & 1,\n    sensorCommFailure:   (sg1 >> 4) & 1,\n    overload:            (sg1 >> 5) & 1,\n    underload:           (sg1 >> 6) & 1,\n    networkFailure:      (sg1 >> 7) & 1,\n    zeroOutOfRange:      (sg1 >> 8) & 1,\n    symmetryError:       (sg1 >> 9) & 1,\n    temperatureError:    (sg1 >> 10) & 1,\n    wmFailure:           (sg1 >> 11) & 1,\n    foreignDevice:       (sg1 >> 12) & 1,\n    testMode:            (sg1 >> 13) & 1\n};\n\n// Scale Status (Status Group 2)\nconst unitBits = sg2 & 0x0F;\nconst unitMap = {0:'g', 1:'kg', 2:'lb', 3:'t', 4:'ton', 7:'custom'};\nconst weightUnit    = unitMap[unitBits] || 'desconocida';\nconst minWeighError = (sg2 >> 4) & 1;\nconst rangeBits     = (sg2 >> 5) & 0x03;\nconst inSetup       = (sg2 >> 7) & 1;\nconst puzFail       = (sg2 >> 8) & 1;  // Power Up Zero Failure\nconst gwpOutTol     = (sg2 >> 9) & 1;\n\n// I/O Status (Status Group 3)\nconst ioIn  = sg3 & 0xFF;          // Bits 0-7: entradas 1-8\nconst ioOut = (sg3 >> 8) & 0xFF;   // Bits 8-15: salidas 1-8\n\n// ── 3. INTERPRETACIÓN DE ERRORES DE RESPUESTA ──\nlet errorMsg = null;\nif (respError) {\n    const errCodes = {\n        1: 'CMD_INVALIDO: comando conocido pero no ejecutable',\n        2: 'TIMEOUT: peso no estable en tiempo límite',\n        4: 'CMD_DESCONOCIDO: comando no soportado',\n        8: 'VALOR_INVALIDO: valor fuera de rango',\n        16: 'CMD_ABORTADO: operación cancelada',\n        32: 'PASO_FALLIDO: error en secuencia multi-paso',\n        64: 'TEST_FALLIDO: error en comando de test'\n    };\n    errorMsg = errCodes[respValue] || `ERROR_DESCONOCIDO: ${respValue}`;\n}\n\n// ── 4. CONSTRUIR SALIDAS ORGANIZADAS ──\nmsg.peso = {\n    valor: weight,\n    unidad: weightUnit,\n    estable: motion === 0,\n    dataOk: dataOk === 1,\n    modoNeto: netMode === 1,\n    centroZero: centerOfZero === 1,\n    alarma: alarmCond === 1,\n    heartbeat: heartbeat,\n    unidadAlternativa: altUnit === 1\n};\n\nmsg.respuesta = {\n    codigo: respValue,\n    canal: respChannel,\n    error: respError === 1,\n    mensajeError: errorMsg,\n    enProceso: respValue === 2047,\n    pasoExitoso: respValue === 2046\n};\n\nmsg.alarmas = redAlert;\n\nmsg.bascula = {\n    unidad: weightUnit,\n    rango: rangeBits + 1,\n    minWeighError: minWeighError === 1,\n    enSetup: inSetup === 1,\n    falloZeroInicial: puzFail === 1,\n    gwpFueraTol: gwpOutTol === 1\n};\n\nmsg.io = {\n    entradasRaw: ioIn,\n    salidasRaw: ioOut,\n    in1: (ioIn >> 0) & 1, in2: (ioIn >> 1) & 1,\n    in3: (ioIn >> 2) & 1, in4: (ioIn >> 3) & 1,\n    out1: (ioOut >> 0) & 1, out2: (ioOut >> 1) & 1,\n    out3: (ioOut >> 2) & 1, out4: (ioOut >> 3) & 1\n};\n\nmsg.debug_raw = {\n    sequenceBits: sequenceBits,\n    mbResponseRaw: resp,\n    sbResponseRaw: raw.sbResponse,\n    sg1Raw: '0x' + sg1.toString(16).padStart(4,'0'),\n    sg2Raw: '0x' + sg2.toString(16).padStart(4,'0'),\n    sg3Raw: '0x' + sg3.toString(16).padStart(4,'0')\n};\n\n// Resumen legible para el nodo status\nconst estadoTexto = motion === 0 ? '✅ESTABLE' : '⚡MOVIMIENTO';\nconst dataTexto = dataOk === 1 ? '' : ' ❌DATA_ERR';\nconst errTexto = errorMsg ? ` | ⚠️${errorMsg}` : '';\nmsg.resumen = `${weight} ${weightUnit} | ${estadoTexto}${dataTexto}${errTexto}`;\n\nnode.status({\n    fill: dataOk ? (motion ? 'yellow' : 'green') : 'red',\n    shape: 'dot',\n    text: msg.resumen\n});\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 730,
+        "y": 120,
+        "wires": [
+            [
+                "debug_peso",
+                "debug_alarmas",
+                "debug_io",
+                "debug_raw"
+            ]
+        ]
+    },
+    {
+        "id": "debug_peso",
+        "type": "debug",
+        "z": "flow_act350_completo",
+        "name": "Peso y Estado",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "complete": "peso",
+        "targetType": "msg",
+        "statusVal": "resumen",
+        "statusType": "msg",
+        "x": 1060,
+        "y": 20,
+        "wires": []
+    },
+    {
+        "id": "debug_alarmas",
+        "type": "debug",
+        "z": "flow_act350_completo",
+        "name": "Alarmas RedAlert",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "alarmas",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1070,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "debug_io",
+        "type": "debug",
+        "z": "flow_act350_completo",
+        "name": "I/O Discretas",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "io",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1050,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "debug_raw",
+        "type": "debug",
+        "z": "flow_act350_completo",
+        "name": "Respuesta Cmd",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "respuesta",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1060,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "comment_escritura",
+        "type": "comment",
+        "z": "flow_act350_completo",
+        "name": "══ ESCRITURA DE COMANDOS (O→T: Assembly 100) ══",
+        "info": "Esta sección construye buffers de 16 bytes para enviar\ncomandos SAI al ACT350 a través del Assembly 100.",
+        "x": 220,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "fn_build_command",
+        "type": "function",
+        "z": "flow_act350_completo",
+        "name": "preparePacket",
+        "func": "// ═══════════════════════════════════════════════════════\n// CONSTRUCTOR DE COMANDOS SAI PARA EL ACT350\n// ═══════════════════════════════════════════════════════\n// Envia cada campo por separado a nodos eip-io out individuales\n// ═══════════════════════════════════════════════════════\n// Entrada: msg.comando = {\n//   codigo: <SAI command number>,\n//   valor:  <float32 value>,\n//   sbComando: <status block command>\n// }\n// ═══════════════════════════════════════════════════════\n\nconst cmd = msg.comando || {};\nconst codigo  = cmd.codigo    || 0;\nconst valor   = cmd.valor     || 0.0;\nconst sbCmd   = cmd.sbComando || 0;\n\n// Salida 1: FLOAT32 Command Value → offset 0\nconst msg1 = { payload: valor };\n\n// Salida 2: UINT16 Channel Mask → offset 4 (siempre 0 para single device)\nconst msg2 = { payload: 0 };\n\n// Salida 3: INT16 MB Command → offset 6\nconst msg3 = { payload: codigo };\n\n// Salida 4: INT16 SB Command → offset 14\nconst msg4 = { payload: sbCmd };\n\nconst cmdNames = {\n    0:'PesoBruto', 2:'PesoTara', 3:'PesoNeto',\n    201:'PresetTara', 400:'TaraEstable', 401:'ZeroEstable',\n    402:'ClearTara', 403:'TaraInm', 404:'ZeroInm',\n    2000:'NOOP', 2004:'Cancelar'\n};\nnode.status({\n    fill: 'blue', shape: 'ring',\n    text: `→ ${cmdNames[codigo]||codigo}${valor?' ('+valor+')':''}`\n});\n\nreturn [msg1, msg2, msg3, msg4];",
+        "outputs": 4,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 780,
+        "y": 400,
+        "wires": [
+            [
+                "5414a5131007e327"
+            ],
+            [
+                "5bca464dfedf9cdc"
+            ],
+            [
+                "fc5474f6536d9e9c"
+            ],
+            [
+                "33bbaa9dc61a0bb6"
+            ]
+        ]
+    },
+    {
+        "id": "comment_reportes",
+        "type": "comment",
+        "z": "flow_act350_completo",
+        "name": "Comandos de Reporte",
+        "info": "",
+        "x": 160,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "btn_report_gross",
+        "type": "inject",
+        "z": "flow_act350_completo",
+        "name": "Peso Bruto (cmd 0)",
+        "props": [
+            {
+                "p": "comando",
+                "v": "{\"codigo\":0}",
+                "vt": "json"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 410,
+        "y": 200,
+        "wires": [
+            [
+                "fn_build_command"
+            ]
+        ]
+    },
+    {
+        "id": "btn_report_tare",
+        "type": "inject",
+        "z": "flow_act350_completo",
+        "name": "Peso de la Tara (cmd 2)",
+        "props": [
+            {
+                "p": "comando",
+                "v": "{\"codigo\":2}",
+                "vt": "json"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 420,
+        "y": 240,
+        "wires": [
+            [
+                "fn_build_command"
+            ]
+        ]
+    },
+    {
+        "id": "btn_report_net",
+        "type": "inject",
+        "z": "flow_act350_completo",
+        "name": "Peso Neto (cmd 3)",
+        "props": [
+            {
+                "p": "comando",
+                "v": "{\"codigo\":3}",
+                "vt": "json"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 410,
+        "y": 280,
+        "wires": [
+            [
+                "fn_build_command"
+            ]
+        ]
+    },
+    {
+        "id": "comment_operaciones",
+        "type": "comment",
+        "z": "flow_act350_completo",
+        "name": "Comandos de Operación",
+        "info": "",
+        "x": 150,
+        "y": 440,
+        "wires": []
+    },
+    {
+        "id": "btn_tare_stable",
+        "type": "inject",
+        "z": "flow_act350_completo",
+        "name": "Tara cuando Estable (cmd 400)",
+        "props": [
+            {
+                "p": "comando",
+                "v": "{\"codigo\":400}",
+                "vt": "json"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 450,
+        "y": 360,
+        "wires": [
+            [
+                "fn_build_command"
+            ]
+        ]
+    },
+    {
+        "id": "btn_tare_immediate",
+        "type": "inject",
+        "z": "flow_act350_completo",
+        "name": "Tara Inmediata (cmd 403)",
+        "props": [
+            {
+                "p": "comando",
+                "v": "{\"codigo\":403}",
+                "vt": "json"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 430,
+        "y": 400,
+        "wires": [
+            [
+                "fn_build_command"
+            ]
+        ]
+    },
+    {
+        "id": "btn_zero_stable",
+        "type": "inject",
+        "z": "flow_act350_completo",
+        "name": "Cero cuando Estable (cmd 401)",
+        "props": [
+            {
+                "p": "comando",
+                "v": "{\"codigo\":401}",
+                "vt": "json"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 450,
+        "y": 440,
+        "wires": [
+            [
+                "fn_build_command"
+            ]
+        ]
+    },
+    {
+        "id": "btn_zero_immediate",
+        "type": "inject",
+        "z": "flow_act350_completo",
+        "name": "Cero Inmediato (cmd 404)",
+        "props": [
+            {
+                "p": "comando",
+                "v": "{\"codigo\":404}",
+                "vt": "json"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 430,
+        "y": 480,
+        "wires": [
+            [
+                "fn_build_command"
+            ]
+        ]
+    },
+    {
+        "id": "btn_clear_tare",
+        "type": "inject",
+        "z": "flow_act350_completo",
+        "name": "Limpiar Tara (cmd 402)",
+        "props": [
+            {
+                "p": "comando",
+                "v": "{\"codigo\":402}",
+                "vt": "json"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 420,
+        "y": 520,
+        "wires": [
+            [
+                "fn_build_command"
+            ]
+        ]
+    },
+    {
+        "id": "comment_escrituras",
+        "type": "comment",
+        "z": "flow_act350_completo",
+        "name": "Comandos de Escritura (con valor)",
+        "info": "",
+        "x": 140,
+        "y": 620,
+        "wires": []
+    },
+    {
+        "id": "btn_preset_tare",
+        "type": "inject",
+        "z": "flow_act350_completo",
+        "name": "Preset Tara = 5.0 kg (cmd 201)",
+        "props": [
+            {
+                "p": "comando",
+                "v": "{\"codigo\":201,\"valor\":5.0}",
+                "vt": "json"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 450,
+        "y": 600,
+        "wires": [
+            [
+                "fn_build_command"
+            ]
+        ]
+    },
+    {
+        "id": "btn_write_comp1",
+        "type": "inject",
+        "z": "flow_act350_completo",
+        "name": "Comparador 1 = 2.0 kg (cmd 240)",
+        "props": [
+            {
+                "p": "comando",
+                "v": "{\"codigo\":240,\"valor\":2.0}",
+                "vt": "json"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 460,
+        "y": 640,
+        "wires": [
+            [
+                "fn_build_command"
+            ]
+        ]
+    },
+    {
+        "id": "comment_sistema",
+        "type": "comment",
+        "z": "flow_act350_completo",
+        "name": "Comandos del Sistema",
+        "info": "",
+        "x": 140,
+        "y": 740,
+        "wires": []
+    },
+    {
+        "id": "btn_noop",
+        "type": "inject",
+        "z": "flow_act350_completo",
+        "name": "NOOP (cmd 2000)",
+        "props": [
+            {
+                "p": "comando",
+                "v": "{\"codigo\":2000}",
+                "vt": "json"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 410,
+        "y": 720,
+        "wires": [
+            [
+                "fn_build_command"
+            ]
+        ]
+    },
+    {
+        "id": "btn_cancel",
+        "type": "inject",
+        "z": "flow_act350_completo",
+        "name": "Cancelar Operación (cmd 2004)",
+        "props": [
+            {
+                "p": "comando",
+                "v": "{\"codigo\":2004}",
+                "vt": "json"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 450,
+        "y": 760,
+        "wires": [
+            [
+                "fn_build_command"
+            ]
+        ]
+    },
+    {
+        "id": "5414a5131007e327",
+        "type": "eip-io out",
+        "z": "flow_act350_completo",
+        "name": "writeTo (MB CMD Value) - FLOAT32",
+        "conn": "conn_v2",
+        "byteOffset": 0,
+        "bitOffset": 0,
+        "dataType": "Float",
+        "bigEndian": false,
+        "decimals": "",
+        "x": 1130,
+        "y": 300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "5bca464dfedf9cdc",
+        "type": "eip-io out",
+        "z": "flow_act350_completo",
+        "name": "writeTo (MB Chan Mask) - UINT16",
+        "conn": "conn_v2",
+        "byteOffset": 4,
+        "bitOffset": 0,
+        "dataType": "UInt16",
+        "bigEndian": false,
+        "decimals": "",
+        "x": 1120,
+        "y": 360,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "fc5474f6536d9e9c",
+        "type": "eip-io out",
+        "z": "flow_act350_completo",
+        "name": "writeTo (MB Command) - INT16",
+        "conn": "conn_v2",
+        "byteOffset": 6,
+        "bitOffset": 0,
+        "dataType": "Int16",
+        "bigEndian": false,
+        "decimals": "",
+        "x": 1110,
+        "y": 420,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "33bbaa9dc61a0bb6",
+        "type": "eip-io out",
+        "z": "flow_act350_completo",
+        "name": "writeTo (SB Command) - INT16",
+        "conn": "conn_v2",
+        "byteOffset": 14,
+        "bitOffset": 0,
+        "dataType": "Int16",
+        "bigEndian": false,
+        "decimals": "",
+        "x": 1110,
+        "y": 480,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "conn_v2",
+        "type": "eip-io connection",
+        "name": "EIP-Conn",
+        "scanner": "scanner_v2",
+        "ipaddress": "172.16.0.8",
+        "rpi": 50,
+        "assconfig": "100",
+        "sizeconfig": "16",
+        "assinput": "101",
+        "sizeinput": "16",
+        "assoutput": "100",
+        "sizeoutput": "16",
+        "edsfile": "$ EZ-EDS Version 3.21.1.20161208 Generated Electronic Data Sheet\r\n\r\n$ ****************************************************************************\r\n$ \t\t\t\t\t\t\t\tMETTLER TOLEDO\r\n$ ****************************************************************************\r\n$  \r\n$ Product: ACT350 Premium\r\n$  \r\n$ (c) Copyright 2016 Mettler-Toledo AG. All Rights Reserved.\r\n$  \r\n$ Author: Flammer Markus\r\n$ Date:   06.21.2016\r\n$  \r\n$ ****************************************************************************\r\n$  \r\n$ ATTENTION:\r\n$ Changes in this file can cause configuration or communication problems.\r\n$  \r\n$ ****************************************************************************\r\n$  \r\n$ Changes:\r\n$ Version  Date       Name   \t\t\tDescription\r\n$ 1.00      06.21.2016 Flammer Markus\tInitial Version\r\n$ 1.01      09.19.2016 Wang Yuming\tUpdate MinRev from 1.1 to 1.2\r\n$ 1.2       19.01.2017 bi LiuGang   Update the catalog name to MT-ACT350 1 Port\r\n$ 1.3\t\t04 Sept  Bi LiuGang\t\tUpdate the port routing capability\r\n\r\n$ ****************************************************************************\r\n\r\n[File]\r\n        DescText = \"EDS-File for ACT350 Transmitter\";\r\n        CreateDate = 09-19-2016;\r\n        CreateTime = 00:36:42;\r\n        ModDate = 06-27-2016;\r\n        ModTime = 00:36:44;\r\n        Revision = 1.1;\r\n        HomeURL = \"www.mt.com\";\r\n        1_IOC_Details_License = 0xE1E97AF2;\r\n\r\n[Device]\r\n        VendCode = 666;\r\n        VendName = \"METTLER TOLEDO\";\r\n        ProdType = 12;\r\n        ProdTypeStr = \"Communications Adapter\";\r\n        ProdCode = 13057;\r\n        MajRev = 1;\r\n        MinRev = 2;\r\n        ProdName = \"ACT350\";\r\n        Catalog = \"MT-ACT350 1 Port\";\r\n        Icon = \"ACT350.ico\";\r\n        IconContents =\r\n                \"AAABAAMAEBAAAAEAIABoBAAANgAAACAgAAABACAAqBAAAJ4EAAAwMAAAAQAg\"\r\n                \"AKglAABGFQAAKAAAABAAAAAgAAAAAQAgAAAAAAAABAAAEwsAABMLAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHBYQAFU1HwB1PhgAiUQVAGpU\"\r\n                \"RgBMTk8AP0BAACsrKwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPzAm\"\r\n                \"ANqabwBILBkIdT0XIH8+EkhfSjxRSktNLD4+Pw8AAAABZWVlAFVVVQBGRkYA\"\r\n                \"MDAwACssKwAAAAAAAAAAADAlHQV5VT1hiFg3s4tOJN2JSBn2bFhL+l1eX+db\"\r\n                \"XFzFWFhYl1VVVWVRUVE4R0dHFxsbHAR4d3gAWFhYACcnJwA5KyINg11CvZJg\"\r\n                \"PP9nTS7/UEMl/2tdUf9iYmP/YmJi/2FhYf9fX1/+X19f71xdXdJaWlqoWVhZ\"\r\n                \"dlBQUDwmJiYEQCsdEYNiTMF/Z1T/WldD/0tDJ/9sXlL/Y2Rl/2RkZP9kZGX/\"\r\n                \"ZGRl/2VlZf9kZGT/ZGRk/2RkZP9eXl7FMDAwFkkvHRV7YlHGZVtT/3hfQv97\"\r\n                \"SR7/cV5S/2VmZ/9mZmb/ZmZm/2ZnZ/9nZ2f/Z2dn/2dnaP9oaGj/YWJi0zc3\"\r\n                \"Nx5GMSMZhmNLzJBjRP9aSSf/ZUIZ/3RgU/9naGn/aGho/2hoaf9oaWn/aWlp\"\r\n                \"/2lpaf9paWr/ampq/11eXqA2NzYMSzUmHYdkTdGSaEr/bmIy/3tWIv91YlX/\"\r\n                \"amts/2pra/9ra2v/a2tr/2tra/9ra2v/a2xs/2xsbP9cXFyHQ0NDAFA3JSGP\"\r\n                \"c2HWnoNw/4F8Vf+LZTb/d2RX/21ub/9tbW3/bW5u/25ubv9ubm7/bm5u/25v\"\r\n                \"b/9vb2//YGBgmS0tLgRZPiwmgGdV2nxtV/9zaEj/gVYu/3hmWf9vcXH/cHFx\"\r\n                \"/3Fxcf9xcXH/cXFx/3Fycv9ycnL/cnJy/21tbd1UVFQ2YkY0K2tRPeFbTTD/\"\r\n                \"Zlcq/4NWKv+EdGn/ent8/3h4eP92d3f/dXZ2/3V1dv91dXX/dnZ2/3Z2dv90\"\r\n                \"dHT3W1tbVFU9LRSGZE1yk2hLmJhqTameg3C1nJiWupSUlciRkJHUjY2N4YuL\"\r\n                \"i+yKiov0iIiI9oSEhPCAgIDneXl51l1dXVBtTTcAyaCEAP///wAPRmsDWn2V\"\r\n                \"B2FmagllZWUPenp6F4KCgiKEhIQxjY2OQI+QkESFhYU4fHx8KnJych5TU1QK\"\r\n                \"AAAAAAsFAgAmIR0AUlFRAGhoaABkZGQAYGBgAHNzcwCAgIAAhYWGAJCQkACT\"\r\n                \"k5MAh4iIAIB/gABycnMAUlJSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//wAA//8A\"\r\n                \"AMB/AAAABwAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"4AAAAP//AAD//wAAKAAAACAAAABAAAAAAQAgAAAAAAAAEAAAEwsAABMLAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAABQAAADEYBgAtHBAAERERAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAg\"\r\n                \"EwsAVC8WAHg+FwCkUBUAAAAAAwAAAAb///8AUVJSAEVFRQArLCsADQ0NAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEIvIwB2UzsAqHFMAAAAAANGJxIU\"\r\n                \"YjMTNXQ4DmF+PA+TZkcypExMTH1BQkJPOTk5KCAhIA8AAAABZGVkAE5PTwAs\"\r\n                \"LCwACwoKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAQi8jD2BDMDRuSjFjfE0tloVMJcSOShznlEcT\"\r\n                \"+pVGEP92VT7/X19f/11dXfVZWVneVVVVu1BQUY1GRkZeP0BANCsrKxYAAAAE\"\r\n                \"jI2MAFdYWAAtLS4AExITACQkJAAMDQwAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAANnSzdxhV5D5I5fQPuRWjX/k1Qq/5JPIf+MSRv/jEcW/3VW\"\r\n                \"QP9hYWH/YWFh/2FhYf9hYWH/YGBg/11dXfpbW1vnWFhYx1RTVJ1LTEttRUZG\"\r\n                \"QDMzMx4SEhIJ////AGRjZAA3ODcALCwsACYnJwALCwwAAAAAAAAAAAAAAAAA\"\r\n                \"AAAABnJSPJCMY0f+kGFB/5FbNf+FWS//Wkgv/zs3I/9pTib/cldE/2FhYv9h\"\r\n                \"YmL/YmJi/2JiYv9hYWH/X19f/19fX/9fX1//Xl5e/19gX/1dXV3uWVpa1FZW\"\r\n                \"VqxOTk5+SEhITzk5OSgkJCQOAAAAAo2OjAAAAAAAAAAAAAAAAAAAAAAIc1M9\"\r\n                \"lIxjR/2RYD//kVo0/3tcMv89QjD/Hywd/2JSKP9yWET/YmJi/2JiY/9iYmP/\"\r\n                \"YmJi/2NjY/9jY2P/YmJj/2BgYf9eXl7/YWFh/2FhYf9gYWH/X19f/19fX/9f\"\r\n                \"X1/0XV1d3lhYWLpQUVCOQUJBRQAAAAUAAAAAAAAAAAAAAAt1VT6ZjmVJ/5Vp\"\r\n                \"Sv+YbE3/e2dD/zo/Lv8eKxv/Y1En/3JZRf9jY2T/Y2Nk/2NjY/9jY2P/ZGRk\"\r\n                \"/2RkZP9kZGT/ZGRk/2RkZP9kZWT/ZGRk/2NjZP9iYmL/YWFh/2NjY/9iY2P/\"\r\n                \"ZGRk/2RkZP9UVFSpAwMDEgAAAAAAAAAAAAAADXdVP5+Xe2j/cGZg/25qZ/98\"\r\n                \"fmv/PEM0/y44KP9oUij/c1lG/2RkZf9kZGX/ZGRk/2RkZf9lZWX/ZGVl/2Vl\"\r\n                \"Zf9lZWX/ZWVm/2VlZv9mZmb/ZWZm/2VmZv9mZmb/ZmZm/2VmZv9mZmb/Z2Zn\"\r\n                \"/1hYWLMLCwsYAAAAAAAAAAAAAAAQeVdApHlkVv8cHR3/S01P/4aBbP9nTzL/\"\r\n                \"c0gn/4hLG/93WUX/ZWVm/2VlZf9lZWX/ZWVm/2ZmZv9mZmb/ZWZm/2ZmZv9m\"\r\n                \"Zmb/ZmZn/2ZmZv9nZmf/Z2dn/2ZnZ/9nZ2f/Z2dn/2doZ/9oaGj/WVlauxUW\"\r\n                \"Fh8AAAAAAAAAAAICAhN5V0Cqln5v/3FpY/9/b2T/k2tN/4ZRIv+GTBj/kkcS\"\r\n                \"/3laRf9mZmf/ZmZn/2ZmZv9mZmb/Z2dn/2dnZ/9nZ2f/Z2dn/2dnZ/9nZ2f/\"\r\n                \"Z2dn/2doaP9nZ2j/Z2ho/2hoaP9oaGj/aGlo/2lpaf9bW1vGICAgJgAAAAAA\"\r\n                \"AAAACwkHF3pYQLCQa1L/kWtR/5NcOP94Vi//Lzwh/zc4F/+IRhT/eltF/2dn\"\r\n                \"aP9naGj/Z2ho/2doaP9oaGj/aGho/2hoaP9oaGj/aGho/2hoaP9oaWj/aGlp\"\r\n                \"/2lpaf9paWn/aWlp/2lpaf9pamn/Z2dn8lNTU5EgICAXAAAAAAAAAAATDgsa\"\r\n                \"e1hBtY1mS/+MY0j/klo0/2xSMP8fMx7/OTsZ/4pHFP96W0f/aGlp/2hpaf9o\"\r\n                \"aWn/aWlp/2lpaf9paWn/aWlp/2lpaf9paWn/aWpp/2lqav9pamr/ampq/2pq\"\r\n                \"av9qamr/ampq/2pra/9iYmLXJCQlMVBUUAAAAAAAAAAAABsUDx18WUG6jmZM\"\r\n                \"/4xjR/+UWTL/i1cr/3RYJ/+CURr/lEgT/3tdSP9pamr/aWpq/2pqav9qamr/\"\r\n                \"ampq/2pqav9qamr/ampr/2pqa/9ra2v/amtr/2pra/9ra2v/a2tr/2tra/9r\"\r\n                \"bGz/bGxs/2RkZNsoKCg2AAAAAAAAAAAAAAAAIhgSIH1aQr6SbVX/kXJd/5hr\"\r\n                \"Sv93ZDX/VXg//2dyNP+QTBf/fF1J/2trbP9ra2v/a2tr/2tra/9ra2v/a2ts\"\r\n                \"/2tra/9rbGz/a2ts/2tsbP9sbGz/bGxs/2xsbP9sbGz/bGxs/2xtbf9tbW3/\"\r\n                \"ZmZm4S8vLz8AAAAAAAAAAAAAAAApHRUlgWBKw5+Ief+TioX/pYlz/2tvPv9N\"\r\n                \"gUn/bHE1/5JMF/98Xkv/bG1u/2xtbf9tbG3/bWxt/21tbf9sbW3/bW1t/21t\"\r\n                \"bf9tbW3/bW1t/21tbf9tbW7/bW1u/21ubv9ubm7/bm5u/29vb/9oaGjkNTU1\"\r\n                \"SCMkIgAAAAAAAAAAADEjGil/XUbHnH1n/5+IeP+fdVj/mnJR/5WDa/+keFf/\"\r\n                \"l00a/31fS/9ub2//bm5u/25ubv9ubm7/bm5u/25ubv9ubm//bm5v/29vb/9v\"\r\n                \"b2//b29v/29vb/9vb2//b29v/29vcP9vcHD/cHBw/2pqauo/Pz9XAAAAAQAA\"\r\n                \"AAAAAAAANycdLIJgSsubhXb/mZCJ/6eIc/+gfmf/mYuB/6B5X/+WThz/fWBM\"\r\n                \"/29wcf9vb3D/b3Bw/3BwcP9wcHD/cHBw/3BwcP9wcHH/cHBw/3Fxcf9wcXH/\"\r\n                \"cHFx/3BxcP9xcXH/cXFx/3Fxcf9xcXH/cHBw+2JiYr9GRkY4AAAAAAAAAABA\"\r\n                \"LiEwfVtEz4JpV/9uYlH/Y1Y1/1VSJf9LVSf/U0YW/4REFP9/Yk//cXJy/3Fx\"\r\n                \"cf9xcXH/cXJy/3Fycv9ycnL/cnJy/3Jycv9ycnL/cnJy/3Jycv9ycnP/cnJy\"\r\n                \"/3Jzc/9zc3P/c3Nz/3Nzc/90dHT/bm9u91VVVWkAAAABAAAAAEo1JzVxUj3T\"\r\n                \"Oy8h/x0kD/8iNA//KUQQ/y9EEP9PQxD/hkUU/39jUP9yc3P/cnJz/3Nzc/9z\"\r\n                \"c3P/c3Rz/3RzdP9zdHT/dHR0/3R0dP90dHT/dHR0/3R0dP91dXX/dXV1/3V1\"\r\n                \"df91dXX/dXV1/3Z2dv9xcnH6WFhYcwAAAAQAAAAATjgpOn1bRNp+Yk3/fWNK\"\r\n                \"/4hlRv+Vakb/oW9J/6NmOv+bUyP/inFg/35/gP97fHz/eXl5/3d3d/92dnb/\"\r\n                \"dnZ2/3V2dv91dXX/dXZ1/3Z2dv92dnb/dnZ2/3Z3d/93d3f/d3d3/3d3d/93\"\r\n                \"d3j/eHh4/3V1df1aWlp+AAAABwAAAABINCYue1pDtZx4YOWedVnwnGpJ9pxm\"\r\n                \"Qfufakf9o3hb/6iPf/+rpqP/qKmp/6Kjo/+enp//mpqa/5KSkv+Ojo7/iouK\"\r\n                \"/4aHh/+EhYX/g4OD/4CAgf9+fn7/fX1+/3x8fP97e3v/enp6/3p6ev96env/\"\r\n                \"eXl5/11eXYoAAAAKAAAAABoTDwRONycZY0IsL2dCKT9qRy9PcFZEXntuZm6H\"\r\n                \"hoWAjo+Rho6Pj4OLjIyOh4eHoYqLi7KRkZG/kpKSy5SUlNiXl5flmJiY7pmZ\"\r\n                \"mfWZmJn7mJiY/5eXl/+UlJT+kpKS+o+PkPWLi4zvhoaG5n+AgNx5eXrSW1tb\"\r\n                \"cwAAAAoAAAAAGRIOAFA5KAB0TzYAiFk5AJVgPQCfbk0ArI15AP///wD///8A\"\r\n                \"////AAAAAAEAAAAFFhYWCj49PhBYWVgXZWRlIWhoaC9ra2s/cnJyUH59fmGK\"\r\n                \"iopzjo6OfIeHh258fHxec3R0UG5ubkBqamoyZmZmJWBgYRtFRUUNAAAAAQAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAwMABwcHAAkICQAHBgcADw4P\"\r\n                \"ACEhIQA3NzcATk1OAGNjYwB1dHUAgICAAIWFhQCJiYoAkJCQALS0tADa29sA\"\r\n                \"o6SjAIyMjACJiYkAhoaHAIGAgQB2dnYAaGhpAEhISAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgYGAAgHBwAGBQUAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAD//////////////////////5////gA///AAA//gAAA/4AAAAeA\"\r\n                \"AAABgAAAAYAAAAGAAAABgAAAAYAAAAGAAAADgAAAA4AAAAOAAAADgAAAAYAA\"\r\n                \"AAGAAAAAgAAAAIAAAACAAAAAgAAAAP/gAAD/////////////////////////\"\r\n                \"/ygAAAAwAAAAYAAAAAEAIAAAAAAAACQAABMLAAATCwAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXCgIAEwgBADYaBwAyHQ4AHBgW\"\r\n                \"AAgIBwAEBAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAALBwQABgQCACMVDABNKxUAg0ceAOJ0KwAAAAAAFQkB\"\r\n                \"DTkcByc1Hw8xHhoYIQcGBgkAAAABi4uMAFJSUgAxMTEAGBkYAAkICQAFBAUA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAABgQEAB0UDgA/KxwAy4JSAAAAAAMoFgoPTSkR\"\r\n                \"JVktEEtqNA95fToMpoVAEM10SSzaVlFNx0pKS6E+Pj50NTU1SS8vLyYdHR0R\"\r\n                \"AAAABcDBwAAzMjMAGBgYAAYHBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB2Vj4AAAAAAhUPCg88KRoqXz0n\"\r\n                \"UG1DJnt3RCKogkcf0Y9KGu+USRX7lkYQ/5RHEv9+UTL/Y15b/19fYP9eXl77\"\r\n                \"Wlla7lNTU9RMTE2wSEhIhEFBQVgtLC00FRUVGQAAAAZ6eXkAYWJiAExLTAAw\"\r\n                \"MDAAGhoaAAcGBwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFDMSQoXkMx\"\r\n                \"cHlUPKiBWDvPh1g46o5XMvuTVSz/lVIk/5ZNHP+XSRX/mEYP/5RGEf9+UTL/\"\r\n                \"ZF9b/2BhYf9hYGH/YWFh/2FhYf9hYWH/X19f/VtbW+9XV1faU1NTu0pLS5I+\"\r\n                \"Pj5lMTEwPC4uLhwSEhILAAAAAn5/fwAwMDEAFhYWAAgHCAAEAwQAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAVkSTZhfFlB4Y9kSP+RYkL/kV87/5JaNP+TVSz/k1El/5FOIP+LSx//\"\r\n                \"iEga/4pHGP98UTX/ZF9c/2FhYf9hYWH/YWFh/2FhYf9hYWH/YWFh/2FhYf9f\"\r\n                \"X1//X15f/19fX/5eX173W1tb5lRUVMlMTEyiR0hHdEBAQEstLS4rDAwMEwAA\"\r\n                \"AANjY2QAQUFBADw9PAAvMC8AFBQUAAYHBgACAwIAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAhnSzdof1tD55BlSP6QYUL/kV47/5FaM/+MWC7/\"\r\n                \"elQu/1xHMP9ANib/U0kp/3ROJP94Uzn/ZF9d/2FhYv9hYmL/YmFi/2JiYv9i\"\r\n                \"YmL/YmFi/2BhYP9dXV3/XV1d/15eXv9fX1//YGBg/2BgYP9hYWH/X2Bf+ltb\"\r\n                \"W+lWVlfQUlJSrkpKSoM4ODlYLS0tMSUlJBUBAwEGAAAAAGVkZQAtLi4AFRYW\"\r\n                \"AAUEBQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAtoSzdtgV1E6pBlR/6QYUL/\"\r\n                \"kV47/5FaNP+FXTL/ZFk1/zU8Mf8VIRj/PUcm/25SJv93VDr/ZWBd/2FiYv9i\"\r\n                \"YmL/YmJi/2JiYv9iYmL/YmJi/2JiYv9iYmL/YmJi/2BgYf9eXl//XV1d/1xc\"\r\n                \"XP9gX2D/YGFg/2BhYP9hYWH/YWFh/2BgYPxeXl7zWlpa3lNSUr1KSkqTQ0ND\"\r\n                \"Zzs8Oz8jJCQiBAUGDgAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAxoTDhv\"\r\n                \"gl5E7JBlSP6RYUL/kl06/5FZM/+DXDH/YVg0/zM6L/8XIxn/P0ko/29SJ/93\"\r\n                \"VDr/ZWBe/2JjY/9jY2P/YmNj/2JiY/9jYmP/Y2Nj/2NjY/9jY2P/Y2Nj/2Nj\"\r\n                \"Y/9iYmL/YGBg/19fX/9iYWL/YWFh/2BgYP9gYGD/X19g/15eXv9dXl3/YWFh\"\r\n                \"/2NjY/9jY2P/YWFh91tbW+NVVlbGS0xLnTs7O0cAAAAKAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAA9pTDh0hF9F75BkRv6QYED/kl88/5NfOv+DYTj/XVc1/zA3LP8V\"\r\n                \"IRf/P0gl/29SJv93VTv/ZmFf/2NjZP9jY2P/Y2Nj/2NjY/9jY2P/Y2Nj/2Rj\"\r\n                \"ZP9kZGT/ZGRk/2RkZP9kZGT/ZGRk/2RkZP9kZWT/ZGRk/2NkZP9jY2P/YmJi\"\r\n                \"/2BgYP9fX1//YWBh/2FiYf9hYmL/YmNj/2VlZf9lZmb/YGFg+0tLS4UBAQEa\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAABFqTDd5h2JJ85VwV/+ae2b/lXtp/5+Lfv+M\"\r\n                \"g23/WFo+/y83LP8UIhf/P0cl/25SJv93VTv/ZmJf/2RkZP9kZGT/ZGRk/2Rk\"\r\n                \"ZP9kZGT/ZGRk/2RlZf9kZGX/ZGRk/2VkZP9lZGX/ZWVl/2VlZf9lZWX/ZWVl\"\r\n                \"/2VlZf9lZWX/ZWVl/2VlZf9lZWX/ZWVl/2VlZf9kZGT/Y2Nk/2VmZf9mZmb/\"\r\n                \"ZGRk/E5OTY0GBgUgAAAAAAAAAAAAAAAAAAAAAAAAABRoSTR8jWtU9aCNf/9z\"\r\n                \"cG//ODk5/2ttbv+IjH7/WF1D/zc9NP8tOC7/TE8v/3JSJ/94Vjv/ZmJh/2Rk\"\r\n                \"Zf9kZGX/ZGVl/2RkZf9lZGX/ZWVl/2VlZv9kZWX/ZWVl/2VlZf9lZWX/ZWVm\"\r\n                \"/2VmZf9mZWb/ZmZm/2ZmZv9mZmb/ZWZm/2ZmZv9mZmb/ZmZn/2ZmZ/9mZmf/\"\r\n                \"ZmZm/2ZnZv9nZ2f/ZWVl/k5OTpMMDAskAAAAAAAAAAAAAAAAAAAAAAAAABdt\"\r\n                \"TTiAhmRN9nFgVP8eHRz/CQoL/2FiY/+MjX7/Y2FC/1VJN/9eRjH/dkwl/4dM\"\r\n                \"Hf99VTn/Z2Nh/2VlZf9lZWX/ZWVl/2VlZf9lZWb/ZWVm/2ZlZv9lZWb/ZWZm\"\r\n                \"/2VmZv9lZmb/ZmZm/2ZmZv9mZmb/ZmZm/2ZmZv9mZmb/Zmdm/2ZnZ/9mZ2f/\"\r\n                \"ZmZn/2dnZ/9nZ2f/Z2dn/2dnZ/9nZ2f/Z2dn/09PT5sTFBMrAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAABpsTTeEiWdQ+HtrYP8yMjL/Jykq/3Z4ef+djX7/hVcy/41O\"\r\n                \"Iv+VSxr/mEcQ/5RIE/9/VDf/aGRi/2ZmZv9lZmb/ZmZm/2ZmZv9mZmb/ZmZm\"\r\n                \"/2ZmZv9mZmb/ZmZm/2ZmZ/9mZmf/Zmdm/2dmZ/9nZ2f/Z2dn/2dnZ/9nZ2f/\"\r\n                \"Z2dn/2dnZ/9nZ2f/Z2hn/2hoaP9oaGj/Z2ho/2hoaP9oaGj/aGhp/1BQUKMa\"\r\n                \"GxoyAAAAAAAAAAAAAAAAAAAAAAICAh1qSzWJkW9X+qaThv+RiIH/hndu/492\"\r\n                \"Zv+TaUz/ilMn/4RTIf98Uh3/i0gS/5JHFP+AVTj/aWVj/2ZmZ/9mZmf/Zmdm\"\r\n                \"/2ZnZ/9mZmf/Z2dn/2dnZ/9nZ2f/Z2dn/2dnZ/9nZ2f/Z2dn/2dnZ/9nZ2f/\"\r\n                \"Z2hn/2dnZ/9naGj/Z2ho/2hoaP9naGj/aGho/2hoaP9oaGj/aGlo/2hpaP9o\"\r\n                \"aWn/aWpq/1FSUawhIiE6AAAAAAAAAAAAAAAAAAAAAAkHBSBtTjmOjGZM/JBs\"\r\n                \"U/+QbFP/kWJC/5NYMv+HWC7/YVUt/ytAIv8pPB3/bUIT/49IFf+BVjj/aWVk\"\r\n                \"/2dnaP9nZ2f/Z2hn/2dnZ/9nZ2j/Z2ho/2hoaP9oaGj/aGho/2doaP9naGj/\"\r\n                \"aGdo/2doaP9oaGj/aGho/2hoaP9oaGn/aGlp/2hpaf9oaWn/aWhp/2loaf9p\"\r\n                \"aWn/aWlp/2lqaf9paWn+Zmdm8U5PTpgfIB8wAAAAAAAAAAAAAAAAAAAAAA4L\"\r\n                \"CCNtTzqSjWVK/oxlSv+JZk3/kV89/5FYMv90VDL/O0Mr/wkdEv8WJxT/aD0R\"\r\n                \"/49IFf+CVjn/amZk/2doaP9naGj/aGho/2hoaP9oaGn/aGhp/2hoaP9oaGn/\"\r\n                \"aGhp/2hoaP9oaGj/aGhp/2hoaf9oaWn/aWlp/2lpaf9paWn/aWlp/2lpaf9p\"\r\n                \"aWn/aWpp/2lqav9pamr/ampq/2pqav9oaGj3SkpLjignKC0VFBUEAAAAAAAA\"\r\n                \"AAAAAAAAAAAAABMOCyZuTzqWjmVK/41lSv+KZEv/kV48/5NYMf97VS//Rkgr\"\r\n                \"/xUwHP8oQSD/cEUU/5BIFf+BVjr/amdl/2hoaf9oaWn/aWlp/2lpaf9paWn/\"\r\n                \"aWlp/2lpaf9paWn/aWlp/2lpaf9paWn/aWpp/2ppav9pamn/ampq/2pqav9q\"\r\n                \"amr/ampq/2pqav9qamv/ampq/2pqav9qamv/amtr/2pqa/9oaGn3REREdwkK\"\r\n                \"CRkZGRkAAAAAAAAAAAAAAAAAAAAAABkSDSpuTzmaj2ZL/41mTP+KZkz/kF48\"\r\n                \"/5VYMP+NVyz/elks/2xbKP98VR//kEoS/5RIFf+BVzv/a2lm/2lqav9paWr/\"\r\n                \"aWpp/2lqaf9pamn/aWpq/2ppav9pamr/ampq/2pqav9qamr/ampq/2prav9r\"\r\n                \"a2v/amtq/2pra/9qa2v/amtq/2tra/9qa2v/a2tr/2tra/9ra2v/a2tr/2ts\"\r\n                \"a/9qamr5RUZGgBITEx4AAAAAAAAAAAAAAAAAAAAAAAAAAB4WES1vTzqej2ZL\"\r\n                \"/4xlTP+KZk3/kV89/5RZMf+SWCv/ilsp/4JgKP+GVx//k0sS/5RJFf+CWDz/\"\r\n                \"bGln/2pqa/9qamv/ampr/2pqa/9qamv/amtr/2tra/9qa2v/ampr/2tra/9r\"\r\n                \"a2v/a2tr/2tra/9ra2z/a2tr/2tra/9ra2v/a2tr/2trbP9rbGv/a2xs/2xs\"\r\n                \"bP9sbGz/bGxs/2xtbP9sa2z7R0dHiRobGiMAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"ACIYEzBvUDuhkmpP/5RwWP+QdGH/nHpj/5dqSP94Yzf/UXRA/z6GS/9KjEn/\"\r\n                \"fV4i/5JLF/+CWDz/bWpp/2trbP9ra2v/a2tr/2tsa/9rbGv/a2tr/2tsbP9s\"\r\n                \"a2z/a2xs/2xsbP9sbGz/bGxs/2xsbP9sbGz/bGxs/2xsbP9sbGz/bGxs/2xs\"\r\n                \"bP9sbGz/bGxs/2xtbf9sbW3/bW1t/21tbf9tbW38SUlJkSIiIicAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAACccEzVyUz6nmnhh/6COg/+Ig3//raSf/6KGbf9tbkD/\"\r\n                \"Pn1H/ziES/9ShET/glsg/5NKF/+DWD3/bWtq/2xsbP9sbWz/bGxs/2xsbP9s\"\r\n                \"bGz/bGxt/2xtbf9sbG3/bGxt/2xtbf9tbW3/bW1t/21tbf9tbW3/bW1t/21t\"\r\n                \"bf9tbW3/bW1t/21tbf9tbW7/bW1u/21ubv9ubm7/bm5u/25ubv9ub278S0tL\"\r\n                \"mSgoKCwAAAAAAAAAAAAAAAAAAAAAAAAAAC0gFzlyUz6rm3li/6SQgv+OgXj/\"\r\n                \"oIl6/51zVP+LZTj/gHRB/4N9TP+PaDb/l08Y/5VKFv+DWj7/bmxr/21ubv9u\"\r\n                \"bW7/bW5u/21tbv9tbW3/bW5t/25ubv9tbm3/bW1u/21ubv9tbm7/bm5u/25u\"\r\n                \"bv9ubm7/bm5u/25ubv9ubm//bm9v/29ub/9ub27/bm9v/29vb/9vb2//b29v\"\r\n                \"/29vb/9wcHD9TU1NoS4uLjAAAAAAAAAAAAAAAAAAAAAAAAAAADIkGzxwUTuu\"\r\n                \"lW1S/5t5Yv+mjHr/o4Jr/51sS/+fcVD/oYVy/5eFef+tkHz/oWA0/5VLGf+C\"\r\n                \"Wj3/b21s/25ub/9ubm//b25v/29ub/9ubm7/bm9u/29vbv9vb2//b29v/25u\"\r\n                \"b/9vbm//b29v/29vb/9vb2//b29v/29vb/9vb2//b3Bv/3BwcP9wcHD/b3Bv\"\r\n                \"/3BvcP9wcHD/b3Bw/3BwcP9xcXH9UVFRrTY2NjcAAAAAAAAAAAoKCgAAAAAA\"\r\n                \"AAAAADYmHEBzVD+ymHZf/5eHe/+SjIf/qJ6W/6eFbf+ffWX/m5CJ/5GMiP+p\"\r\n                \"k4b/oWM4/5ZMGv+DWj7/cG5t/29vcP9vb2//b29v/29vb/9vb2//cHBw/29w\"\r\n                \"b/9wcHD/cHBw/3BwcP9wcHD/cHBw/3BwcP9wcXD/cHFx/3Bxcf9wcHD/cHBw\"\r\n                \"/3BxcP9xcXH/cXFw/3Bxcf9wcXH/cHFx/3Fxcf9xcnH+aGlp51VVVZc4ODg5\"\r\n                \"AAAAAgcHBwAAAAAAAAAAADopHkR0VUC1m3lj/6CPhP+PhH3/not8/5tzVf+W\"\r\n                \"aEb/mXhc/5N4Xv+EXTn/i0kY/5BIF/+DXED/cW9u/3BwcP9wcHH/cHBx/3Bw\"\r\n                \"cf9wcXH/cXFx/3Fxcf9xcXH/cXFx/3Fxcf9xcXH/cXFx/3Fxcf9xcXH/cXFx\"\r\n                \"/3Fycv9xcXL/cXFx/3Fycf9xcnH/cnJy/3Jycv9ycnL/cnJy/3Jycv9ycnL/\"\r\n                \"dHR0/2lpae1XV1eFAAAADQsLCwAAAAAAAAAAAEEvIkhxUjy6iGRL/3JaR/9n\"\r\n                \"V0T/WEsy/0pHIf8+SBf/M0cU/y1GEf8yQw//Zj4M/4hGFv+EXEH/cnFv/3Fx\"\r\n                \"cv9xcXL/cXJx/3Fycf9xcnL/cXJy/3Jycv9ycnL/cnJy/3Jyc/9ycnP/cnJy\"\r\n                \"/3Jycv9ycnL/cnJy/3Nzc/9zc3P/c3Nz/3Nzc/9yc3P/c3Nz/3Nzc/9zc3P/\"\r\n                \"c3N0/3NzdP9zc3P/dHV0/2xsbPJcXFyPAAAAEg4ODgEAAAAAAAAAAEk0Jkxt\"\r\n                \"Tzu+aU47/yEfFf8UHwz/EiUL/xM4C/8URQz/FEQM/xlDDP8rQQ3/Zz4M/4lH\"\r\n                \"GP+FXUP/dHJw/3Jycv9ycnP/cnJy/3Nzc/9zc3P/c3Nz/3Nzc/9zc3P/c3Nz\"\r\n                \"/3Nzc/9zc3P/c3Nz/3Nzc/90c3T/dHR0/3R0dP90dHT/dHR0/3R0dP90dHT/\"\r\n                \"dHR1/3R0df90dHX/dHR1/3R1dP91dXX/dXZ1/29vb/dfX1+WAAAAFxEREQEA\"\r\n                \"AAAAAAAAAEw3KVBuUDvCblE8/zQpHP80Lxn/QDYc/01BHv9cSSD/aU4i/3JQ\"\r\n                \"JP9+Uyb/jkoX/5NKGP+FXUH/dHJx/3Nzc/9zc3T/c3N0/3RzdP90dHT/dHR0\"\r\n                \"/3R1dP91dHX/dHV0/3R0dP90dHX/dXV1/3V1df91dXX/dXV1/3V1df91dXX/\"\r\n                \"dXV1/3V2df92dXb/dnZ2/3Z2dv92dnb/dnZ2/3Z2dv92dnb/d3d3/3Jycvph\"\r\n                \"YWGeBQQFHhUVFQEAAAAAAAAAAE44KVV1VT/HlG9V/5Z2X/+ZeF//n3le/6F1\"\r\n                \"Vv+nd1b/sX9e/7N/XP+yelP/pVsp/5tVJv+QbVX/hISD/4CAgP99fX3/fHx8\"\r\n                \"/3l5ef93dnf/dnZ2/3Z2dv92dnb/dnZ2/3Z2dv92dnb/dnZ2/3Z2dv93d3f/\"\r\n                \"dnd3/3d3d/93d3f/d3d3/3d3eP93eHf/d3d4/3d3eP93d3f/d3d4/3h4eP94\"\r\n                \"eHj/eHl4/3R1df1kZGSkDAwMJBkZGQEAAAAAAAAAAE03KFN2VkDDnHZb/KmI\"\r\n                \"cP+ngGb/pHhZ/6FtSf+gZT7/oGI4/6BgNP+hZTz/pXRT/6qOe/+upZ//ra2u\"\r\n                \"/6mpqf+lpaX/oaGh/5ycnP+Xlpf/kZGR/4uLi/+HiIj/hYaG/4KDgv9/f3//\"\r\n                \"fX19/3x8fP98fHz/e3t7/3p6ev95eXn/eXl5/3l5ef94eHn/eHh5/3h4ef95\"\r\n                \"eHn/eXl5/3l5ef95eXn/eXl6/3d3d/9mZmarExITKh4eHgEAAAAAAAAAACsf\"\r\n                \"GBxTOytSbk44g3pUO51/VDetglQ1vIVXN8iIXT/SjGhQ25J6auSajobsoJ2b\"\r\n                \"8aOjo/GkpKXvpKSk8aSkpPeioqL8oKCg/6OkpP+mpqb/o6Oj/6CfoP+enp7/\"\r\n                \"nJyc/5qam/+ZmZn/l5eY/5aXlv+UlJX/kZKS/4+Pj/+MjIz/ioqK/4iIif+G\"\r\n                \"hof/hISF/4KCgv+BgIH/f4CA/35+f/9+fX7/fX1+/3x8fP9qamqzGBgYMSMi\"\r\n                \"IwIAAAAAAAAAAFtCMACgdFYAAAAAAQAAAAgNCAUOHBcTFywpJiA9PDsqTlBQ\"\r\n                \"NV9hY0BrbW5Pc3N0WXV1dVl0dXRVcnJyWXBwcGhubm55cHBwind4eJl/f3+n\"\r\n                \"hIOEtYeHh8KMjIzQkZKS3ZaWluiZmZnwm5ub9pycnPqdnZ39nZyd/52dnf+c\"\r\n                \"nJz/m5ub/5ubm/+ampr9mZqZ/JeYmPmUlJX0kJCQ7YqKiuWCg4PbfX190XV1\"\r\n                \"dcdhYWGJGBgYKB8fHwEAAAAAAAAAAAAAAAAAAAAABwUDAA0JBgAXDwsAIRsV\"\r\n                \"AC8qJgA+PDoAT09PAGRlZQCZmpoA4uHjAOfn5wDDxcMA4eHhAP///wAAAAAC\"\r\n                \"AAAABQAAAAkhICENPT09Ek9QTxhXVlchWFlYLlpaWjxdXV1MYmJiXWpqam91\"\r\n                \"dHWDgICAlIuLi6ePj4+wi4uLqIGBgZZ3d3eFbm9ud2doaGdhYWJWXl1eR1xc\"\r\n                \"XDlZWlktWlpaIlVVVhpFRUUPERERBAQEBAEAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAUFBQAFBQUACAgIAAkICQAHBgcA\"\r\n                \"CQgJABEQEQAeHh4AKysrADo6OgBJSUkAWllaAGxtbACGhYYApqemAMzMzAD9\"\r\n                \"/P0A////AP///wAAAAAAAAAAAhUVFQUaGhoHFhYWBQAAAAIAAAAA////AP//\"\r\n                \"/wD///8A7/DvAMLBwgCgoaAAhIWFAGxsbABSUlEAFBQUAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAQIAAQABAAcHBwAICAgACAcHAAID\"\r\n                \"AgAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\r\n                \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///////8AAP//////\"\r\n                \"/wAA////////AAD///////8AAP///////wAA////////AAD///////8AAP/4\"\r\n                \"H////wAA/wAB////AADwAAAf//8AAMAAAAD//wAAwAAAAA//AADAAAAAAP8A\"\r\n                \"AMAAAAAABwAAwAAAAAADAADAAAAAAAMAAMAAAAAAAwAAwAAAAAADAADAAAAA\"\r\n                \"AAMAAMAAAAAAAwAAwAAAAAADAADAAAAAAAMAAMAAAAAAAwAAwAAAAAAHAADA\"\r\n                \"AAAAAAcAAMAAAAAABwAAwAAAAAAHAADAAAAAAAcAAMAAAAAABwAAwAAAAAAH\"\r\n                \"AADAAAAAAAEAAMAAAAAAAQAAwAAAAAAAAADAAAAAAAAAAMAAAAAAAAAAwAAA\"\r\n                \"AAAAAADAAAAAAAAAAMAAAAAAAAAA8AAAAAAAAAD//8AAAAAAAP////4P/wAA\"\r\n                \"////////AAD///////8AAP///////wAA////////AAD///////8AAP//////\"\r\n                \"/wAA////////AAA=\";\r\n\r\n[Device Classification]\r\n        Class1 = EtherNetIP;\r\n\r\n[Params]\r\n        Param1 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xCA,                   $ Data Type\r\n                4,                      $ Data Size in bytes\r\n                \"MB1 Command Value\",    $ name\r\n                \"\",                     $ units\r\n                \"Floating point value - optionally used with command\",    $ help string\r\n                -3000000000.0,3000000000.0,0,    $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param2 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xD2,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"MB1 Channel Mask\",     $ name\r\n                \"\",                     $ units\r\n                \"Channel Mask (0 always for single devices)\",    $ help string\r\n                0,0xFFFF,0,             $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Enum2 =\r\n                0,\"Apply command to Channel 1\",\r\n                1,\"Apply command to Channel 2\",\r\n                2,\"Apply command to Channel 3\",\r\n                3,\"Apply command to Channel 4\",\r\n                4,\"Apply command to Channel 5\",\r\n                5,\"Apply command to Channel 6\",\r\n                6,\"Apply command to Channel 7\",\r\n                7,\"Apply command to Channel 8\",\r\n                8,\"Apply command to Channel 9\",\r\n                9,\"Apply command to Channel 10\",\r\n                10,\"Apply command to Channel 11\",\r\n                11,\"Apply command to Channel 12\",\r\n                12,\"Apply command to Channel 13\",\r\n                13,\"Apply command to Channel 14\",\r\n                14,\"Apply command to Channel 15\",\r\n                15,\"Apply command to Channel 16\";\r\n        Param3 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC7,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"MB1 Command\",          $ name\r\n                \"\",                     $ units\r\n                \"Command and Channel Indicator\",    $ help string\r\n                0,32767,0,              $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param4 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC7,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"SB1 Reserved 1\",       $ name\r\n                \"\",                     $ units\r\n                \"Reserved\",             $ help string\r\n                0,32767,0,              $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param5 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC7,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"SB1 Reserved 2\",       $ name\r\n                \"\",                     $ units\r\n                \"Reserved\",             $ help string\r\n                0,32767,0,              $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param6 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC7,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"SB1 Reserved 3\",       $ name\r\n                \"\",                     $ units\r\n                \"Reserved\",             $ help string\r\n                0,32767,0,              $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param7 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC7,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"SB1 Command\",          $ name\r\n                \"\",                     $ units\r\n                \"Status Command and Channel Indicator\",    $ help string\r\n                0,32767,0,              $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param8 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0010,                 $ Descriptor\r\n                0xCA,                   $ Data Type\r\n                4,                      $ Data Size in bytes\r\n                \"MB1 Measuring Value\",  $ name\r\n                \"\",                     $ units\r\n                \"Requested floating point value (32-bit)\",    $ help string\r\n                -3000000000.0,3000000000.0,0,    $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param9 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0010,                 $ Descriptor\r\n                0xD2,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"MB1 Device Status\",    $ name\r\n                \"\",                     $ units\r\n                \"Command Status\",       $ help string\r\n                0,0xFFFF,0,             $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Enum9 =\r\n                0,\"Sequence bit 0\",\r\n                1,\"Sequence bit 1\",\r\n                2,\"Heart Beat\",\r\n                3,\"Data Okay\",\r\n                4,\"Alarm Condition\",\r\n                5,\"Center of Zero\",\r\n                6,\"Motion\",\r\n                7,\"Net Mode\",\r\n                8,\"Alternate Weight Unit\",\r\n                9,\"Device Specific Bit 1\",\r\n                10,\"Device Specific Bit 2\",\r\n                11,\"Device Specific Bit 3\",\r\n                12,\"Device Specific Bit 4\",\r\n                13,\"Device Specific Bit 5\",\r\n                14,\"Device Specific Bit 6\",\r\n                15,\"Device Specific Bit 7\";\r\n        Param10 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0010,                 $ Descriptor\r\n                0xC7,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"MB1 Response\",         $ name\r\n                \"\",                     $ units\r\n                \"Field Value and Channel Indicator\",    $ help string\r\n                0,32767,0,              $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param11 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0010,                 $ Descriptor\r\n                0xD2,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"SB1 Status Group 1\",   $ name\r\n                \"\",                     $ units\r\n                \"Status Group 1\",       $ help string\r\n                0,32767,0,              $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param12 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0010,                 $ Descriptor\r\n                0xD2,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"SB1 Status Group 2\",   $ name\r\n                \"\",                     $ units\r\n                \"Status Group 2\",       $ help string\r\n                0,32767,0,              $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param13 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0010,                 $ Descriptor\r\n                0xD2,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"SB1 Status Group 3\",   $ name\r\n                \"\",                     $ units\r\n                \"Status Group 3\",       $ help string\r\n                0,32767,0,              $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param14 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0010,                 $ Descriptor\r\n                0xC7,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"SB1 Response\",         $ name\r\n                \"\",                     $ units\r\n                \"Field Value and Channel Indicator\",    $ help string\r\n                0,32767,0,              $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param60 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC8,                   $ Data Type\r\n                4,                      $ Data Size in bytes\r\n                \"RPI Range\",            $ name\r\n                \"micro second\",         $ units\r\n                \"supported RPI range\",  $ help string\r\n                1000,100000,10000,      $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param70 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC7,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"Assembly 2 Block Size\",$ name\r\n                \"\",                     $ units\r\n                \"Assembly Block Size for 2 Block Format\",    $ help string\r\n                16,16,16,               $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param71 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC7,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"Assembly 1 Block Size\",$ name\r\n                \"\",                     $ units\r\n                \"Assembly Block Size for 1 Block Format\",    $ help string\r\n                8,8,8,                  $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param72 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC7,                   $ Data Type\r\n                2,                      $ Data Size in bytes\r\n                \"Assembly 1/2 Block Size\",    $ name\r\n                \"\",                     $ units\r\n                \"\",                     $ help string\r\n                8,16,16,                $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Enum72 =\r\n                8,\"I/O 1 Block Format\",\r\n                16,\"I/O 2 Block Format\";\r\n        Param75 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC6,                   $ Data Type\r\n                1,                      $ Data Size in bytes\r\n                \"Assembly Instance Output 2 Block\",    $ name\r\n                \"\",                     $ units\r\n                \"\",                     $ help string\r\n                100,100,100,            $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param76 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC6,                   $ Data Type\r\n                1,                      $ Data Size in bytes\r\n                \"Assembly Instance Input 2 Block\",    $ name\r\n                \"\",                     $ units\r\n                \"\",                     $ help string\r\n                101,101,101,            $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param77 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC6,                   $ Data Type\r\n                1,                      $ Data Size in bytes\r\n                \"Assembly Instance Output 1 Block\",    $ name\r\n                \"\",                     $ units\r\n                \"\",                     $ help string\r\n                100,100,100,            $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n        Param78 =\r\n                0,                      $ reserved, shall equal 0\r\n                ,,                      $ Link Path Size, Link Path\r\n                0x0000,                 $ Descriptor\r\n                0xC6,                   $ Data Type\r\n                1,                      $ Data Size in bytes\r\n                \"Assembly Instance Input 1 Block\",    $ name\r\n                \"\",                     $ units\r\n                \"\",                     $ help string\r\n                103,103,103,            $ min, max, default data values\r\n                ,,,,                    $ mult, div, base, offset scaling\r\n                ,,,,                    $ mult, div, base, offset links\r\n                ;                       $ decimal places\r\n\r\n[Groups]\r\n        Group1 =\r\n                \"Measuring Block 1\",\r\n                6,\r\n                1,2,3,8,9,10;\r\n        Group2 =\r\n                \"Status Block 1\",\r\n                8,\r\n                4,5,6,7,11,12,13,14;\r\n\r\n[Assembly]\r\n        Object_Name = \"Assembly Object\";\r\n        Object_Class_Code = 0x04;\r\n        Assem100 =\r\n                $ Includes Measuring Block (Floating Point) and Status Block\r\n                \"Output 2 Block Format\",\r\n                \"20 04 24 64 30 03\",\r\n                ,\r\n                0x0000,\r\n                ,,\r\n                32,Param1,\r\n                16,Param2,\r\n                16,Param3,\r\n                16,Param4,\r\n                16,Param5,\r\n                16,Param6,\r\n                16,Param7;\r\n        Assem101 =\r\n                $ Includes Measuring and Status Data\r\n                \"Input 2 Block Format \",\r\n                \"20 04 24 65 30 03\",\r\n                ,\r\n                0x0000,\r\n                ,,\r\n                32,Param8,\r\n                16,Param9,\r\n                16,Param10,\r\n                16,Param11,\r\n                16,Param12,\r\n                16,Param13,\r\n                16,Param14;\r\n        Assem102 =\r\n                \"Output 1 Block Format\",\r\n                \"20 04 24 64 30 03\",\r\n                ,\r\n                0x0000,\r\n                ,,\r\n                32,Param1,\r\n                16,Param2,\r\n                16,Param3;\r\n        Assem103 =\r\n                \"Input 1 Block Format \",\r\n                \"20 04 24 65 30 03\",\r\n                ,\r\n                0x0000,\r\n                ,,\r\n                32,Param8,\r\n                16,Param9,\r\n                16,Param10;\r\n\r\n[Connection Manager]\r\n        Object_Name = \"Connection Manager Object\";\r\n        Object_Class_Code = 0x06;\r\n\r\n        Connection1 =\r\n                0x04010002,             $ 0-15    = supported transport classes\r\n                                        $ 16      = trigger: cyclic\r\n                                        $ 17      = trigger: change of state\r\n                                        $ 18      = trigger: application\r\n                                        $ 19-23   = trigger: reserved\r\n                                        $ 24      = application type: listen-only\r\n                                        $ 25      = application type: input-only\r\n                                        $ 26      = application type: exclusive-owner\r\n                                        $ 27      = application type: redundant-owner\r\n                                        $ 28-30   = reserved\r\n                                        $ 31      = Direction: Client = 0 / Server = 1\r\n                0x44640405,             $ 0       = O->T fixed size supported\r\n                                        $ 1       = O->T variable size supported\r\n                                        $ 2       = T->O fixed size supported\r\n                                        $ 3       = T->O variable size supported\r\n                                        $ 4-5     = O->T number of bytes per slot (obsolete)\r\n                                        $ 6-7     = T->O number of bytes per slot (obsolete)\r\n                                        $ 8-10    = O->T Real time transfer format\r\n                                        $ 11      = reserved\r\n                                        $ 12-14   = T->O Real time transfer format\r\n                                        $ 15      = reserved\r\n                                        $ 16      = O->T connection type: NULL\r\n                                        $ 17      = O->T connection type: MULTICAST\r\n                                        $ 18      = O->T connection type: POINT2POINT\r\n                                        $ 19      = O->T connection type: reserved\r\n                                        $ 20      = T->O connection type: NULL\r\n                                        $ 21      = T->O connection type: MULTICAST\r\n                                        $ 22      = T->O connection type: POINT2POINT\r\n                                        $ 23      = T->O connection type: reserved\r\n                                        $ 24      = O->T priority: LOW\r\n                                        $ 25      = O->T priority: HIGH\r\n                                        $ 26      = O->T priority: SCHEDULED\r\n                                        $ 27      = O->T priority: reserved\r\n                                        $ 28      = T->O priority: LOW\r\n                                        $ 29      = T->O priority: HIGH\r\n                                        $ 30      = T->O priority: SCHEDULED\r\n                                        $ 31      = T->O priority: reserved\r\n                ,Param70,Assem100,      $ O->T RPI, size, format\r\n                ,Param70,Assem101,      $ T->O RPI, size, format\r\n                ,,                      $ proxy config size, format\r\n                ,,                      $ target config size, format\r\n                \"I/O 2 Block Format\",   $ Connection Name\r\n                \"\",                     $ help string\r\n                \"20 04 24 01 2C [Param75] 2C [Param76]\";    $ Path\r\n        Connection2 =\r\n                0x04010002,             $ 0-15    = supported transport classes\r\n                                        $ 16      = trigger: cyclic\r\n                                        $ 17      = trigger: change of state\r\n                                        $ 18      = trigger: application\r\n                                        $ 19-23   = trigger: reserved\r\n                                        $ 24      = application type: listen-only\r\n                                        $ 25      = application type: input-only\r\n                                        $ 26      = application type: exclusive-owner\r\n                                        $ 27      = application type: redundant-owner\r\n                                        $ 28-30   = reserved\r\n                                        $ 31      = Direction: Client = 0 / Server = 1\r\n                0x44640405,             $ 0       = O->T fixed size supported\r\n                                        $ 1       = O->T variable size supported\r\n                                        $ 2       = T->O fixed size supported\r\n                                        $ 3       = T->O variable size supported\r\n                                        $ 4-5     = O->T number of bytes per slot (obsolete)\r\n                                        $ 6-7     = T->O number of bytes per slot (obsolete)\r\n                                        $ 8-10    = O->T Real time transfer format\r\n                                        $ 11      = reserved\r\n                                        $ 12-14   = T->O Real time transfer format\r\n                                        $ 15      = reserved\r\n                                        $ 16      = O->T connection type: NULL\r\n                                        $ 17      = O->T connection type: MULTICAST\r\n                                        $ 18      = O->T connection type: POINT2POINT\r\n                                        $ 19      = O->T connection type: reserved\r\n                                        $ 20      = T->O connection type: NULL\r\n                                        $ 21      = T->O connection type: MULTICAST\r\n                                        $ 22      = T->O connection type: POINT2POINT\r\n                                        $ 23      = T->O connection type: reserved\r\n                                        $ 24      = O->T priority: LOW\r\n                                        $ 25      = O->T priority: HIGH\r\n                                        $ 26      = O->T priority: SCHEDULED\r\n                                        $ 27      = O->T priority: reserved\r\n                                        $ 28      = T->O priority: LOW\r\n                                        $ 29      = T->O priority: HIGH\r\n                                        $ 30      = T->O priority: SCHEDULED\r\n                                        $ 31      = T->O priority: reserved\r\n                ,Param71,Assem102,      $ O->T RPI, size, format\r\n                ,Param71,Assem103,      $ T->O RPI, size, format\r\n                ,,                      $ proxy config size, format\r\n                ,,                      $ target config size, format\r\n                \"I/O 1 Block Format\",   $ Connection Name\r\n                \"\",                     $ help string\r\n                \"20 04 24 01 2C [Param77] 2C [Param78]\";    $ Path\r\n\r\n[Port]\r\n        Object_Name = \"Port Object\";\r\n        Object_Class_Code = 0xF4;\r\n        Port1 =\r\n                TCP,\r\n                \"EtherNet/IP port\",\r\n                \"20 F5 24 01\",\r\n                2,\r\n                0x00;\r\n\r\n[Capacity]\r\n\r\n        ConnOverhead = .004;            $ Connection Overhead\r\n\r\n        MaxIOConnections = 1;           $ Maximum number of Class 1 Connections\r\n        MaxMsgConnections = 6;          $ Maximum number of Class 3 Connections\r\n        TSpec1 = TxRx, 10, 2000;        $ packets per sec @ 10 bytes\r\n        TSpec2 = TxRx, 504, 1500;       $ packets per sec @ 504 bytes\r\n\r\n[TCP/IP Interface Class]\r\n        Revision = 4;\r\n        Object_Name = \"TCP/IP Interface Object\";\r\n        Object_Class_Code = 0xF5;\r\n        MaxInst = 1;\r\n        Number_Of_Static_Instances = 1;\r\n        Max_Number_Of_Dynamic_Instances = 0;\r\n\r\n[Ethernet Link Class]\r\n        Revision = 4;\r\n        Object_Name = \"Ethernet Link Object\";\r\n        Object_Class_Code = 0xF6;\r\n        MaxInst = 2;\r\n        Number_Of_Static_Instances = 2;\r\n        Max_Number_Of_Dynamic_Instances = 0;\r\n        InterfaceLabel1 = \"Port 1\";\r\n\r\n$ ****************************************************************************\r\n$ EOF\r\n$ ****************************************************************************\r\n",
+        "connection": "Connection1",
+        "connections": [
+            {
+                "value": "Connection1",
+                "label": "Connection1:I/O 2 Block Format"
+            },
+            {
+                "value": "Connection2",
+                "label": "Connection2:I/O 1 Block Format"
+            }
+        ],
+        "configdata": []
+    },
+    {
+        "id": "scanner_v2",
+        "type": "eip-io scanner",
+        "name": "EIP-Scanner",
+        "ipaddress": ""
+    },
+    {
+        "id": "7a89f676fc585be7",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "@serafintech/node-red-contrib-eip-io": "1.2.1",
+            "node-red-contrib-buffer-parser": "3.2.2"
+        }
+    }
+]
