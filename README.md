@@ -158,8 +158,8 @@ El nodo `eip-io connection` define los parámetros de la conexión I/O al dispos
 |:---------------:|:----------------------------:|:--------------------------------------------------:|
 |    IP Address   |           172.16.0.8         | Dirección IP del ACT350 en la red                  |
 |      RPI        |              50              | Intervalo de actualización en ms (rango: 1–100 ms) |
-| Assembly Config |              100             | Instancia de assembly de configuración             |
-|   Size Config   |              16              | Tamaño en bytes del assembly de configuración      |
+| Assembly Config |              128             | Instancia de assembly de configuración             |
+|   Size Config   |              0              | Tamaño en bytes del assembly de configuración      |
 |  Assembly Input |              101             | Instancia del assembly de entrada (T→O)            |
 |    Size Input   |              16              | Tamaño en bytes de los datos de entrada            |
 | Assembly Output |              100             | Instancia del assembly de salida (O→T)             |
